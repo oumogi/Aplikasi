@@ -7,6 +7,7 @@ import {
     GoogleAuthProvider,
     signInWithPopup,
     sendEmailVerification,
+    sendPasswordResetEmail,
     signOut,
     User as FirebaseUser,
 } from '../services/firebase';
@@ -18,7 +19,7 @@ interface AuthProps {
 }
 
 export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
-  const [view, setView] = useState<'login' | 'signup' | 'verifyEmail'>('login');
+  const [view, setView] = useState<'login' | 'signup' | 'verifyEmail' | 'forgotPassword' | 'resetLinkSent'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -56,7 +57,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     if (view === 'signup' && password !== repeatPassword) {
         return setError('Passwords do not match.');
     }
-    if (password.length < 6) {
+    if (view !== 'login' && password.length < 6) {
         return setError('Password should be at least 6 characters.');
     }
 
@@ -92,6 +93,25 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
         setLoading(false);
     }
   };
+  
+  const handlePasswordReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+        await sendPasswordResetEmail(auth, email);
+        setVerificationEmail(email);
+        setView('resetLinkSent');
+    } catch (err: any) {
+        if (err.code === 'auth/user-not-found') {
+            setError("No account found with this email address.");
+        } else {
+            setError(err.message.replace('Firebase: ', ''));
+        }
+    } finally {
+        setLoading(false);
+    }
+  };
 
   const toggleForm = () => {
     setView(view === 'login' ? 'signup' : 'login');
@@ -99,8 +119,69 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     setPassword('');
     setRepeatPassword('');
     setName('');
-    setEmail('');
   };
+  
+  if (view === 'forgotPassword' || view === 'resetLinkSent') {
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-slate-50 p-4">
+            <div className="w-full max-w-md">
+                <div className="bg-white p-8 rounded-2xl shadow-xl animate-fadeInScale">
+                    {view === 'forgotPassword' ? (
+                        <>
+                            <h1 className="text-2xl font-bold text-slate-800 text-center">Reset Password</h1>
+                            <p className="text-slate-500 mt-2 text-center">Enter your email to receive a password reset link.</p>
+                            <form onSubmit={handlePasswordReset} className="space-y-6 mt-8">
+                                <div className="relative">
+                                    <AtSignIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                                    <input 
+                                        type="email" 
+                                        placeholder="Email Address" 
+                                        value={email}
+                                        onChange={(e) => setEmail(e.target.value)}
+                                        required
+                                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white transition-all text-slate-900"
+                                    />
+                                </div>
+                                {error && <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg text-center">{error}</p>}
+                                <button 
+                                    type="submit" 
+                                    disabled={loading}
+                                    className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg shadow-indigo-200"
+                                >
+                                    {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : 'Get Reset Link'}
+                                </button>
+                            </form>
+                             <p className="text-center text-sm text-slate-500 mt-6">
+                                Remember your password?
+                                <button onClick={() => setView('login')} className="font-medium text-indigo-600 hover:text-indigo-500 ml-1">
+                                    Sign In
+                                </button>
+                            </p>
+                        </>
+                    ) : (
+                        <div className="text-center">
+                            <div className="mx-auto mb-6 w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center">
+                                <MailIcon size={32} />
+                            </div>
+                            <h1 className="text-2xl font-bold text-slate-800">Check Your Email</h1>
+                            <p className="text-slate-500 mt-4">
+                                We sent a password reset link to <br />
+                                <span className="font-medium text-slate-900">{verificationEmail}</span>.
+                            </p>
+                            <button
+                                onClick={() => setView('login')}
+                                className="mt-8 w-full px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all font-medium shadow-lg shadow-indigo-200"
+                            >
+                                Back to Sign In
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+  }
+
 
   if (view === 'verifyEmail') {
     return (
@@ -186,19 +267,28 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                         className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white transition-all text-slate-900"
                     />
                 </div>
-                <div className="relative">
-                    <LockIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                    <input 
-                        type={showPassword ? 'text' : 'password'}
-                        placeholder="Password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required 
-                        className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white transition-all text-slate-900"
-                    />
-                     <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                        {showPassword ? <EyeOffIcon size={20}/> : <EyeIcon size={20} />}
-                    </button>
+                <div>
+                    <div className="relative">
+                        <LockIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                        <input 
+                            type={showPassword ? 'text' : 'password'}
+                            placeholder="Password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required 
+                            className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:bg-white transition-all text-slate-900"
+                        />
+                         <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                            {showPassword ? <EyeOffIcon size={20}/> : <EyeIcon size={20} />}
+                        </button>
+                    </div>
+                    {view === 'login' && (
+                        <div className="text-right mt-2">
+                             <button type="button" onClick={() => setView('forgotPassword')} className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+                                Forgot password?
+                            </button>
+                        </div>
+                    )}
                 </div>
 
                 {view === 'signup' && (

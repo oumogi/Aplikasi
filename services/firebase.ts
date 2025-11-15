@@ -10,6 +10,7 @@ import {
   signOut,
   updateProfile,
   sendEmailVerification,
+  sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
   User
@@ -40,6 +41,7 @@ export {
     signOut,
     updateProfile,
     sendEmailVerification,
+    sendPasswordResetEmail,
     GoogleAuthProvider,
     signInWithPopup,
     type User,
