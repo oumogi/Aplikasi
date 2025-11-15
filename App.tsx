@@ -43,7 +43,7 @@ const App: React.FC = () => {
   // --- Auth & Data Listener ---
   useEffect(() => {
     const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
-      if (firebaseUser) {
+      if (firebaseUser && firebaseUser.emailVerified) {
         const appUser: User = {
           uid: firebaseUser.uid,
           email: firebaseUser.email,
@@ -59,6 +59,11 @@ const App: React.FC = () => {
         });
 
       } else {
+        if (firebaseUser && !firebaseUser.emailVerified) {
+            // If a user is signed in but not verified, sign them out
+            // to prevent access to the app.
+            signOut(auth);
+        }
         setUser(null);
         setFiles([]);
         if (unsubscribeFiles.current) {
@@ -154,7 +159,16 @@ const App: React.FC = () => {
 
   const handleUpdateProfile = async (updates: { displayName?: string; photoFile?: File | null }) => {
     await userService.updateUserProfile(updates);
-    // The onAuthStateChanged listener will automatically update the user state in the UI.
+    const refreshedUser = auth.currentUser;
+    if (refreshedUser) {
+      // onAuthStateChanged doesn't fire for profile updates, so we update state manually.
+      setUser({
+        uid: refreshedUser.uid,
+        email: refreshedUser.email,
+        displayName: refreshedUser.displayName,
+        photoURL: refreshedUser.photoURL,
+      });
+    }
   };
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {

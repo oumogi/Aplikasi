@@ -6,10 +6,11 @@ import {
     updateProfile,
     GoogleAuthProvider,
     signInWithPopup,
+    sendEmailVerification,
+    signOut,
     User as FirebaseUser,
 } from '../services/firebase';
-import { createUserDocument } from '../services/userService';
-import { AtSignIcon, LockIcon, UserIcon, EyeIcon, EyeOffIcon, LogoIcon, GoogleIcon } from './Icons';
+import { AtSignIcon, LockIcon, UserIcon, EyeIcon, EyeOffIcon, LogoIcon, GoogleIcon, MailIcon } from './Icons';
 import { User } from '../types';
 
 interface AuthProps {
@@ -17,7 +18,7 @@ interface AuthProps {
 }
 
 export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
-  const [isLogin, setIsLogin] = useState(true);
+  const [view, setView] = useState<'login' | 'signup' | 'verifyEmail'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -25,6 +26,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState('');
 
   const mapFirebaseUserToAppUser = (firebaseUser: FirebaseUser): User => ({
     uid: firebaseUser.uid,
@@ -39,7 +41,6 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     const provider = new GoogleAuthProvider();
     try {
         const result = await signInWithPopup(auth, provider);
-        await createUserDocument(result.user);
         onLogin(mapFirebaseUserToAppUser(result.user));
     } catch (err: any) {
         setError(err.message.replace('Firebase: ', ''));
@@ -52,7 +53,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     e.preventDefault();
     setError('');
     
-    if (!isLogin && password !== repeatPassword) {
+    if (view === 'signup' && password !== repeatPassword) {
         return setError('Passwords do not match.');
     }
     if (password.length < 6) {
@@ -61,21 +62,28 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
 
     setLoading(true);
     try {
-        if (isLogin) {
+        if (view === 'login') {
             const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            onLogin(mapFirebaseUserToAppUser(userCredential.user));
-        } else {
+            if (userCredential.user.emailVerified) {
+              onLogin(mapFirebaseUserToAppUser(userCredential.user));
+            } else {
+              await sendEmailVerification(userCredential.user);
+              await signOut(auth);
+              setVerificationEmail(userCredential.user.email!);
+              setView('verifyEmail');
+            }
+        } else { // signup
             const userCredential = await createUserWithEmailAndPassword(auth, email, password);
             await updateProfile(userCredential.user, { displayName: name });
-            await createUserDocument(userCredential.user);
-            // We need to pass the updated user object to onLogin
-            const updatedFirebaseUser = { ...userCredential.user, displayName: name };
-            onLogin(mapFirebaseUserToAppUser(updatedFirebaseUser as FirebaseUser));
+            await sendEmailVerification(userCredential.user);
+            
+            setVerificationEmail(userCredential.user.email!);
+            setView('verifyEmail');
         }
     } catch (err: any) {
-        if (isLogin && (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found')) {
+        if (view === 'login' && (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found')) {
             setError('Password or Email Incorrect');
-        } else if (!isLogin && err.code === 'auth/email-already-in-use') {
+        } else if (view === 'signup' && err.code === 'auth/email-already-in-use') {
             setError('User already exists. Sign in?');
         } else {
             setError(err.message.replace('Firebase: ', ''));
@@ -86,13 +94,45 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
   };
 
   const toggleForm = () => {
-    setIsLogin(!isLogin);
+    setView(view === 'login' ? 'signup' : 'login');
     setError('');
     setPassword('');
     setRepeatPassword('');
     setName('');
     setEmail('');
   };
+
+  if (view === 'verifyEmail') {
+    return (
+        <div className="flex items-center justify-center min-h-screen bg-slate-50 p-4">
+            <div className="w-full max-w-md text-center">
+                <div className="bg-white p-8 rounded-2xl shadow-xl animate-fadeInScale">
+                    <div className="mx-auto mb-6 w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center">
+                        <MailIcon size={32} />
+                    </div>
+                    <h1 className="text-2xl font-bold text-slate-800">Verify Your Email</h1>
+                    <p className="text-slate-500 mt-4">
+                        We have sent a verification link to <br />
+                        <span className="font-medium text-slate-900">{verificationEmail}</span>.
+                    </p>
+                    <p className="text-slate-500 mt-2">
+                        Please check your inbox and click the link to activate your account.
+                    </p>
+                    <button
+                        onClick={() => {
+                            setView('login');
+                            setEmail(verificationEmail);
+                            setPassword('');
+                        }}
+                        className="mt-8 w-full px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all font-medium shadow-lg shadow-indigo-200"
+                    >
+                        Back to Login
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-slate-50 p-4">
@@ -104,7 +144,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-indigo-600 tracking-tight">
                 Welcome to Gemini Drive
             </h1>
-            <p className="text-slate-500 mt-2">{isLogin ? 'Sign in to access your files' : 'Create an account to get started'}</p>
+            <p className="text-slate-500 mt-2">{view === 'login' ? 'Sign in to access your files' : 'Create an account to get started'}</p>
         </div>
 
         <div className="bg-white p-8 rounded-2xl shadow-xl">
@@ -122,7 +162,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 <div className="flex-grow border-t border-slate-200"></div>
             </div>
             <form onSubmit={handleEmailPasswordSubmit} className="space-y-6">
-                {!isLogin && (
+                {view === 'signup' && (
                     <div className="relative w-full">
                         <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                         <input 
@@ -161,7 +201,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     </button>
                 </div>
 
-                {!isLogin && (
+                {view === 'signup' && (
                     <div className="relative">
                          <LockIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                          <input 
@@ -182,15 +222,15 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                     disabled={loading}
                     className="w-full flex justify-center items-center gap-2 px-4 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-lg shadow-indigo-200"
                 >
-                    {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : (isLogin ? 'Log In' : 'Create Account')}
+                    {loading ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : (view === 'login' ? 'Log In' : 'Create Account')}
                 </button>
             </form>
         </div>
 
         <p className="text-center text-sm text-slate-500 mt-8">
-            {isLogin ? "Don't have an account?" : "Already have an account?"}
+            {view === 'login' ? "Don't have an account?" : "Already have an account?"}
             <button onClick={toggleForm} className="font-medium text-indigo-600 hover:text-indigo-500 ml-1">
-                {isLogin ? 'Sign up' : 'Log in'}
+                {view === 'login' ? 'Sign up' : 'Log in'}
             </button>
         </p>
       </div>
