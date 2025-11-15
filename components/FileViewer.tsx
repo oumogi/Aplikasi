@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { XIcon, SparklesIcon, InfoIcon, TrashIcon, DownloadIcon } from './Icons';
 import { DriveFile, FileType } from '../types';
-import { formatBytes, getFileExtension } from '../services/utils';
+import { formatBytes, getFileExtension, urlToBase64 } from '../services/utils';
 import { analyzeFileWithGemini } from '../services/geminiService';
 
 interface FileViewerProps {
@@ -49,8 +49,9 @@ export const FileViewer: React.FC<FileViewerProps> = ({ file, onClose, onUpdateF
             ? "Describe this image in detail." 
             : "Summarize the content of this file.");
         
-        // Use the base64 download_url directly for analysis
-        const result = await analyzeFileWithGemini(file.download_url, file.mimeType, prompt);
+        // Convert storage URL to base64 for Gemini analysis
+        const base64Data = await urlToBase64(file.download_url);
+        const result = await analyzeFileWithGemini(base64Data, file.mimeType, prompt);
         
         onUpdateFile({
             ...file,

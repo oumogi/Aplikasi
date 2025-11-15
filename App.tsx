@@ -20,64 +20,16 @@ import { ConfirmationModal } from './components/ConfirmationModal';
 import { ProfileModal } from './components/ProfileModal';
 import { Auth } from './components/Auth';
 import { formatBytes, fileToBase64, getFileType } from './services/utils';
-
-// --- MOCK DATA ---
-const initialFiles: DriveFile[] = [
-  {
-    id: '1',
-    name: 'Project Proposal.pdf',
-    type: FileType.PDF,
-    mimeType: 'application/pdf',
-    size: 1200000,
-    download_url: '', // PDF preview is not supported, so this is fine
-    storagePath: '',
-    createdAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
-    updatedAt: Date.now() - 2 * 24 * 60 * 60 * 1000,
-    notes: 'Initial proposal for the Q3 project.',
-    aiSummary: 'This document outlines the scope, goals, and timeline for the upcoming quarterly project, focusing on market expansion and product development.',
-  },
-  {
-    id: '2',
-    name: 'Team Meeting Notes.txt',
-    type: FileType.TEXT,
-    mimeType: 'text/plain',
-    size: 5000,
-    download_url: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==', // "Hello, World!"
-    storagePath: '',
-    createdAt: Date.now() - 1 * 24 * 60 * 60 * 1000,
-    updatedAt: Date.now() - 1 * 24 * 60 * 60 * 1000,
-    notes: 'Action items from the weekly sync.',
-    aiSummary: '',
-  },
-  {
-    id: '3',
-    name: 'logo-design.png',
-    type: FileType.IMAGE,
-    mimeType: 'image/png',
-    size: 78000,
-    download_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAIQSURBVHhe7ZtBToNAEIbp/S924gPxB/gD/CGeiCde3BC3II/gwe01W2aW2J2lTd1Ue22aFE20o+n0Pz/vL09fP6pSAAAAAAAAgCMwLyzp9Do93RO2E30rQd+C7z4bN6oEjy8Pdbv9g3wvyzYw34346vY8E+fN9iF+P84+e12mCRs9s0A+s28yF98P5z3P518L8g3+b+Y1sOAZyP/N4d6G321i+eW62i8N9yub5TdbG75Z7f7f4/LsewIAAAAAAAAABwW4sM/v90+Bv6/X/z+fXh++Wa5f/f4f/A9/BwAAAAAAAAAAToCBf/Y/m2/6+fcrzqH/mYd/d5+ZXwYAAAAAAAAAAGdggY/P87+v15+P+x1+dp3p8+Vn4P/i88/PZwIAAAAAAAAAADhBAp/P9/s/y+fl145n/v/p83P/t5enZ+kFAAAAAAAAAMAJCvyvP38fvi/fP59+fmP8Py7P3/5+3q+AAS4AAAAAAAAAABwQgS/b3+f79eW19fPz6+s3y7/fL1/e/L4PAAAAAAAAAADOBd7/f/y+ff7/+Pv6/fn3x+s3AAAAAAAAAADgBNj58vn59fXl8/Pr8++fXx//v5+fn98PAQAAAAAAAAD+EWB32E70rYR+C94/dwI+BwAAAAAAAAAATuC9AAMAAAAAAAAAAIAf4A8AAAAAAAD+A/gDNAAA+As4BPgLmAQA+BMsAQAAAAAAADiCvwCRi4BfduaeUQAAAABJRU5ErkJggg==', // a sample 64x64 blue dot
-    storagePath: '',
-    createdAt: Date.now() - 5 * 24 * 60 * 60 * 1000,
-    updatedAt: Date.now() - 5 * 24 * 60 * 60 * 1000,
-    notes: 'Final logo design.',
-    aiSummary: 'A minimalist logo featuring geometric shapes with a blue and green color palette, symbolizing growth and stability.',
-  }
-];
+import { onAuthStateChanged, signOut, User as FirebaseUser, auth } from './services/firebase';
+import * as fileService from './services/fileService';
+import * as userService from './services/userService';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
-  const [loadingAuth, setLoadingAuth] = useState(false); // No real auth, so no loading state
-
-  // --- Auth handlers ---
-  const handleLogin = (loggedInUser: User) => {
-    setUser(loggedInUser);
-  };
-  const handleLogout = () => {
-    setUser(null);
-  };
+  const [loadingAuth, setLoadingAuth] = useState(true);
 
   // --- App State ---
-  const [files, setFiles] = useState<DriveFile[]>(initialFiles);
+  const [files, setFiles] = useState<DriveFile[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -86,7 +38,52 @@ const App: React.FC = () => {
   const [fileToDelete, setFileToDelete] = useState<DriveFile | null>(null);
   const [filters, setFilters] = useState<FilterState>({ search: '', type: 'ALL', dateRange: 'ALL' });
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const unsubscribeFiles = useRef<() => void | undefined>();
+
+  // --- Auth & Data Listener ---
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        const appUser: User = {
+          uid: firebaseUser.uid,
+          email: firebaseUser.email,
+          displayName: firebaseUser.displayName,
+          photoURL: firebaseUser.photoURL,
+        };
+        setUser(appUser);
+        
+        if (unsubscribeFiles.current) unsubscribeFiles.current();
+
+        unsubscribeFiles.current = fileService.listenToUserFiles(firebaseUser.uid, (userFiles) => {
+          setFiles(userFiles);
+        });
+
+      } else {
+        setUser(null);
+        setFiles([]);
+        if (unsubscribeFiles.current) {
+            unsubscribeFiles.current();
+            unsubscribeFiles.current = undefined;
+        }
+      }
+      setLoadingAuth(false);
+    });
+
+    return () => {
+        unsubscribeAuth();
+        if (unsubscribeFiles.current) unsubscribeFiles.current();
+    };
+  }, []);
+
   
+  // --- Auth handlers ---
+  const handleLogin = (loggedInUser: User) => {
+    setUser(loggedInUser);
+  };
+  const handleLogout = () => {
+    signOut(auth).catch(error => console.error("Logout failed", error));
+  };
+
   // --- Storage Calculation ---
   const totalStorage = 5 * 1024 * 1024 * 1024; // 5 GB
 
@@ -102,31 +99,20 @@ const App: React.FC = () => {
   // --- Handlers ---
   const handleUpload = async (file: File, name: string, notes: string) => {
     if (!user) return;
-
-    const download_url = await fileToBase64(file);
-    const now = Date.now();
-    const newFile: DriveFile = {
-      id: crypto.randomUUID(),
-      name: name || file.name,
-      type: getFileType(file.type),
-      mimeType: file.type,
-      size: file.size,
-      download_url,
-      storagePath: '', // Not used
-      createdAt: now,
-      updatedAt: now,
-      notes,
-      aiSummary: '',
-    };
-    setFiles(prevFiles => [newFile, ...prevFiles]);
+    try {
+        await fileService.uploadFile(user.uid, file, name || file.name, notes);
+    } catch (error) {
+        console.error("Upload failed:", error);
+        alert("Upload failed. Please try again.");
+    }
   };
 
   const handleUpdateFile = async (updatedFile: DriveFile) => {
     if (!user) return;
-    const newFiles = files.map(f => f.id === updatedFile.id ? { ...updatedFile, updatedAt: Date.now() } : f);
-    setFiles(newFiles);
+    const { id, ...updates } = updatedFile;
+    await fileService.updateUserFile(user.uid, id, updates);
     if (viewingFile?.id === updatedFile.id) {
-      setViewingFile({ ...updatedFile, updatedAt: Date.now() });
+      setViewingFile({ ...viewingFile, ...updates, updatedAt: Date.now() });
     }
   };
 
@@ -136,7 +122,7 @@ const App: React.FC = () => {
 
   const handleConfirmDelete = async () => {
     if (!user || !fileToDelete) return;
-    setFiles(files.filter(f => f.id !== fileToDelete!.id));
+    await fileService.deleteUserFile(user.uid, fileToDelete);
     setFileToDelete(null);
     if(viewingFile?.id === fileToDelete.id) {
         setViewingFile(null);
@@ -147,16 +133,17 @@ const App: React.FC = () => {
     if (downloadingFileId === file.id) return;
     setDownloadingFileId(file.id);
     try {
-        if (!file.download_url) {
-            alert("No content to download for this file.");
-            return;
-        }
+        // Firebase download URLs can be used directly.
+        const response = await fetch(file.download_url);
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.href = file.download_url;
+        link.href = url;
         link.download = file.name;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error("Download failed:", error);
       alert("Oops! Something went wrong while trying to download the file.");
@@ -166,19 +153,8 @@ const App: React.FC = () => {
   };
 
   const handleUpdateProfile = async (updates: { displayName?: string; photoFile?: File | null }) => {
-    if (!user) return;
-    let newPhotoURL = user.photoURL;
-    if (updates.photoFile) {
-        newPhotoURL = await fileToBase64(updates.photoFile);
-    } else if (updates.photoFile === null) {
-        newPhotoURL = null;
-    }
-
-    setUser({
-        ...user,
-        displayName: updates.displayName || user.displayName,
-        photoURL: newPhotoURL
-    });
+    await userService.updateUserProfile(updates);
+    // The onAuthStateChanged listener will automatically update the user state in the UI.
   };
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
@@ -191,8 +167,8 @@ const App: React.FC = () => {
 
     if (activeView === 'RECENT') {
         tempFiles.sort((a, b) => b.updatedAt - a.updatedAt);
-    } else {
-        tempFiles.sort((a, b) => b.createdAt - a.createdAt);
+    } else if (activeView !== 'DRIVE') {
+        // DRIVE is already sorted by createdAt from the query
     }
 
     if (activeView === 'AI') {
@@ -200,9 +176,11 @@ const App: React.FC = () => {
     }
 
     if (filters.search) {
+        const searchTerm = filters.search.toLowerCase();
         tempFiles = tempFiles.filter(file => 
-            file.name.toLowerCase().includes(filters.search.toLowerCase()) ||
-            (file.notes && file.notes.toLowerCase().includes(filters.search.toLowerCase()))
+            file.name.toLowerCase().includes(searchTerm) ||
+            (file.notes && file.notes.toLowerCase().includes(searchTerm)) ||
+            (file.aiSummary && file.aiSummary.toLowerCase().includes(searchTerm))
         );
     }
 
@@ -278,7 +256,7 @@ const App: React.FC = () => {
                         </div>
                         <div className="flex justify-between text-xs font-medium text-slate-600">
                              <span>{formatBytes(usedStorage)} used</span>
-                             <span>5 GB</span>
+                             <span>{formatBytes(totalStorage)}</span>
                         </div>
                     </div>
                 </div>
@@ -394,12 +372,12 @@ const App: React.FC = () => {
             title="Delete File"
             message={`Are you sure you want to delete "${fileToDelete?.name}"? This action cannot be undone.`}
         />
-         <ProfileModal 
+         {user && <ProfileModal 
             isOpen={isProfileModalOpen}
             onClose={() => setIsProfileModalOpen(false)}
             user={user}
             onUpdate={handleUpdateProfile}
-        />
+        />}
     </div>
 );
 };

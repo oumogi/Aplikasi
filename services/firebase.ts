@@ -19,12 +19,12 @@ import {
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyA6x4TJzTPH9mSyYfqngRd0J28dDxzBEUY",
-  authDomain: "gemini-drive-41d11.firebaseapp.com",
-  projectId: "gemini-drive-41d11",
-  storageBucket: "gemini-drive-41d11.firebasestorage.app",
-  messagingSenderId: "90763919099",
-  appId: "1:90763919099:web:b7d1a3e41e313742db7a5e"
+  apiKey: "AIzaSyCjGzOh9kUpuXNhNpGBRj4JTH_FhJCywn8",
+  authDomain: "gemini-drive-66d3f.firebaseapp.com",
+  projectId: "gemini-drive-66d3f",
+  storageBucket: "gemini-drive-66d3f.firebasestorage.app",
+  messagingSenderId: "330396036044",
+  appId: "1:330396036044:web:eee49bbc68178f3a01cb69"
 };
 
 // Initialize Firebase
